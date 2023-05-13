@@ -555,6 +555,14 @@ uint32_t rwkv_get_logits_buffer_element_count(const struct rwkv_context * ctx) {
     return ctx->model->n_vocab;
 }
 
+uint32_t rwkv_get_embedding_size(const struct rwkv_context * ctx) {
+    return ctx->model->n_embed;
+}
+
+uint32_t rwkv_get_layer_count(const struct rwkv_context * ctx) {
+    return ctx->model->n_layer;
+}
+
 bool rwkv_eval(const struct rwkv_context * ctx, const uint32_t token, const float * state_in, float * state_out, float * logits_out) {
     RWKV_ASSERT_FALSE(state_out != NULL, "state_out is NULL");
     RWKV_ASSERT_FALSE(logits_out != NULL, "logits_out is NULL");

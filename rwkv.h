@@ -49,6 +49,12 @@ extern "C" {
     // Returns count of FP32 elements in logits buffer.
     RWKV_API uint32_t rwkv_get_logits_buffer_element_count(const struct rwkv_context * ctx);
 
+    // Returns the number of layers in the model.
+    RWKV_API uint32_t rwkv_get_layer_count(const struct rwkv_context * ctx);
+
+    // Returns the size of the embedding vector of the model.
+    RWKV_API uint32_t rwkv_get_embedding_size(const struct rwkv_context * ctx);
+
     // Frees all allocated memory and the context.
     RWKV_API void rwkv_free(struct rwkv_context * ctx);
 

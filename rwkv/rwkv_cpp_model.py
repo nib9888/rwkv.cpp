@@ -39,6 +39,9 @@ class RWKVModel:
         self._state_buffer_element_count = self._library.rwkv_get_state_buffer_element_count(self._ctx)
         self._logits_buffer_element_count = self._library.rwkv_get_logits_buffer_element_count(self._ctx)
 
+        self.embedding_size = self._library.rwkv_get_embedding_size(self._ctx)
+        self.layer_count = self._library.rwkv_get_layer_count(self._ctx)
+
         self._valid = True
 
     def eval(

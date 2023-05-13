@@ -56,6 +56,12 @@ class RWKVSharedLibrary:
         self.library.rwkv_get_logits_buffer_element_count.argtypes = [ctypes.c_void_p]
         self.library.rwkv_get_logits_buffer_element_count.restype = ctypes.c_uint32
 
+        self.library.rwkv_get_layer_count.argtypes = [ctypes.c_void_p]
+        self.library.rwkv_get_layer_count.restype = ctypes.c_uint32
+
+        self.library.rwkv_get_embedding_size.argtypes = [ctypes.c_void_p]
+        self.library.rwkv_get_embedding_size.restype = ctypes.c_uint32
+
         self.library.rwkv_free.argtypes = [ctypes.c_void_p]
         self.library.rwkv_free.restype = None
 
@@ -142,6 +148,30 @@ class RWKVSharedLibrary:
         """
 
         return self.library.rwkv_get_logits_buffer_element_count(ctx.ptr)
+
+    def rwkv_get_layer_count(self, ctx: RWKVContext) -> ctypes.c_void_p:
+        """
+        Returns the number of layers in the model.
+
+        Parameters
+        ----------
+        ctx : RWKVContext
+            RWKV context obtained from rwkv_init_from_file.
+        """
+
+        return self.library.rwkv_get_layer_count(ctx.ptr)
+
+    def rwkv_get_embedding_size(self, ctx: RWKVContext) -> ctypes.c_void_p:
+        """
+        Returns a the size of an embedding vector of the model (n_embed).
+
+        Parameters
+        ----------
+        ctx : RWKVContext
+            RWKV context obtained from rwkv_init_from_file.
+        """
+
+        return self.library.rwkv_get_embedding_size(ctx.ptr)
 
     def rwkv_free(self, ctx: RWKVContext) -> None:
         """
