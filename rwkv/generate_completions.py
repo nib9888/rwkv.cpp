@@ -4,6 +4,8 @@ import argparse
 import os
 import pathlib
 import time
+
+from torch.nn import init
 import sampling
 import tokenizers
 import rwkv_cpp_model
@@ -13,17 +15,6 @@ import numpy as np
 
 # ======================================== Script settings ========================================
 
-# prompt: str = """# rwkv.cpp
-#
-# This is a port of [BlinkDL/RWKV-LM](https://github.com/BlinkDL/RWKV-LM) to [ggerganov/ggml](https://github.com/ggerganov/ggml).
-#
-# Besides usual **FP32**, it supports **FP16** and **quantized INT4** inference on CPU. This project is **CPU only**."""
-
-#prompt: str = "This is a simple demonstration of linguistic ambiguity. In the sentence \"Bob collapsed on the sidewalk. Soon he saw Carl coming to help. He was very ill.\", the person who was very ill was"
-
-# with open("rwkv/prompt.txt", "r") as f:
-#     prompt = f.read()
-#
 
 prompt = "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English."
 
@@ -32,23 +23,24 @@ generation_count: int = 1
 # Token count per single completion.
 tokens_per_generation: int = 300
 
-# How much prompt to print out
-prompt_len = 0
+## Variables for sampling methods, in order of how they will be applied:
+# Typical Sampling:
+tau: float = 0.2 # Used for typical sampling; 1.0 disables
 
-# Sampling settings.
-temperature: float = 1.0
-top_p: float = 0.6
+top_p: float = 0.8 # Both 1.0 and 0.0 disable
 
-# Contrastive search:
+top_k: int = 0 # If using contrastive search (CS), this cannot be too high or 0 (which disables it)
+
+temperature: float = 1.1 # If not using CS and not using typical sampling, setting this to 0.0 will force greedy search
+
+# Contrastive Search:
 # Determines strength of degradation factor in sampling - used for a lerp between model's output and its similarity to earlier model states
-alpha: float = 0.4  # between 0 and 1, where 0 is greedy search and thus disables CS, leaving nucleus sampling with top_p and temp defined above - high values lead to nonsense
+alpha: float = 0.6  # between 0 and 1, where 0 disables CS and 1 uses only the similarities, leading to nonsense
 # Temperature for the similarities array - similar to alpha, however is non-linear and is more likely to respect when the model is 90% confident in a token - this is probably better to change than alpha
-beta: float = 1.2 # min value: 1.0, where higher values decrease chance of model repeating itself
-top_k: int = 5 # Number of samples to contrast with context and then pick from - higher values directly influence processing time and could potentially decrease quality
+beta: float = 1.2 # min value: 0, where higher values increase the range of values in the similarities array
 
-typical_sampling = False
-temperature = temperature
-# tau = 0.2
+argmax=False # If True, the most likely token is chosen after all the various sampling strategies. Otherwise, a random token is chosen based on the modified probabilities
+# To achieve greedy sampling, set argmax=True, top_k=1, and disable typical sampling
 
 # =================================================================================================
 
@@ -73,20 +65,22 @@ prompt_tokens = tokenizer.encode(prompt).ids
 prompt_token_count = len(prompt_tokens)
 print(f'{prompt_token_count} tokens in prompt')
 
+do_contrastive = alpha != 0.0
+
 init_logits, init_state = None, None
 init_state_history = []
 
-if alpha == 0.0:
+if not do_contrastive:
     for i in range(len(prompt_tokens) - 1):
         init_logits, init_state = model.eval(prompt_tokens[i], init_state, init_state, init_logits)
 else:
     for i in range(len(prompt_tokens) - 1):
         init_logits, init_state = model.eval(prompt_tokens[i], init_state, init_state, init_logits)
-        init_state_history.append(np.reshape(init_state.clone(), (model.layer_count * 5, model.embedding_size))) # TODO: optimise so that only the required layers are retained
+        init_state_history.append(np.reshape(init_state.clone(), (model.layer_count * 5, model.embedding_size))[:2*5]) # Only keep first 2 layers - the same value as num_partial_layers in rwkv.cpp
 
 for GENERATION in range(generation_count):
     print(f'\n--- Generation {GENERATION} ---\n')
-    print(prompt[prompt_len * -1:], end='[')
+    print(prompt, end='[')
     start = time.time()
 
     token = prompt_tokens[-1:][0] # last token
@@ -96,14 +90,11 @@ for GENERATION in range(generation_count):
     for i in range(tokens_per_generation):
         logits, state = model.eval(token, state, state, logits)
 
-        if alpha == 0.0:
-            if typical_sampling:
-                token = sampling.sample_logits_typical(logits, temperature, tau)
-            else:
-                token = sampling.sample_logits(logits, temperature, top_p, top_k)
-        else:
-            state_history.append(np.reshape(state.clone(), (model.layer_count * 5, model.embedding_size)))
-            token = sampling.sample_logits_contrastive_state(model, logits, state_history, top_k, alpha, beta)
+        if do_contrastive:
+            state_history.append(np.reshape(state.clone(), (model.layer_count * 5, model.embedding_size))[:2*5]) # Same as above
+        if len(state_history) > 124:
+            state_history.pop(0) # TODO: investigate dequeue?
+        token = sampling.sample_logits(logits, temperature, top_p, top_k, alpha, beta, state_history, model, tau, None, argmax=argmax)
 
         print(tokenizer.decode([token]), end='')
 

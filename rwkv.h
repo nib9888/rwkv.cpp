@@ -23,6 +23,13 @@
 #define RWKV_FILE_MAGIC 0x67676d66
 #define RWKV_FILE_VERSION 100
 
+#define RWKV_EVAL_FULL 0x0
+#define RWKV_EVAL_PARTIAL 0x1
+#define RWKV_EVAL_REST 0x2
+
+#define RWKV_EVAL_MIN RWKV_EVAL_FULL
+#define RWKV_EVAL_MAX RWKV_EVAL_REST
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,7 +48,7 @@ extern "C" {
     // - state_in: FP32 buffer of size rwkv_get_state_buffer_element_count; or NULL, if this is a first pass.
     // - state_out: FP32 buffer of size rwkv_get_state_buffer_element_count. This buffer will be written to.
     // - logits_out: FP32 buffer of size rwkv_get_logits_buffer_element_count. This buffer will be written to.
-    RWKV_API bool rwkv_eval(const struct rwkv_context * ctx, const uint32_t token, const float * state_in, float * state_out, float * logits_out);
+    RWKV_API bool rwkv_eval(const struct rwkv_context * ctx, const uint32_t token, const float * state_in, float * state_out, float * logits_out, int32_t eval_mode);
 
     // Returns count of FP32 elements in state buffer.
     RWKV_API uint32_t rwkv_get_state_buffer_element_count(const struct rwkv_context * ctx);

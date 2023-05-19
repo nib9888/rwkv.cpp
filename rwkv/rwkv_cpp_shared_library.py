@@ -15,6 +15,10 @@ QUANTIZED_FORMAT_NAMES = (
 
 P_FLOAT = ctypes.POINTER(ctypes.c_float)
 
+EVAL_FULL = 0x0
+EVAL_PARTIAL = 0x1
+EVAL_REST = 0x2
+
 class RWKVContext:
 
     def __init__(self, ptr: ctypes.pointer):
@@ -46,7 +50,8 @@ class RWKVSharedLibrary:
             ctypes.c_int32, # token
             P_FLOAT, # state_in
             P_FLOAT, # state_out
-            P_FLOAT  # logits_out
+            P_FLOAT, # logits_out
+            ctypes.c_int32, # eval_mode
         ]
         self.library.rwkv_eval.restype = ctypes.c_bool
 
@@ -97,7 +102,8 @@ class RWKVSharedLibrary:
             token: int,
             state_in_address: Optional[int],
             state_out_address: int,
-            logits_out_address: int
+            logits_out_address: int,
+            eval_mode: int,
     ) -> None:
         """
         Evaluates the model for a single token.
@@ -122,7 +128,8 @@ class RWKVSharedLibrary:
             ctypes.c_int32(token),
             ctypes.cast(0 if state_in_address is None else state_in_address, P_FLOAT),
             ctypes.cast(state_out_address, P_FLOAT),
-            ctypes.cast(logits_out_address, P_FLOAT)
+            ctypes.cast(logits_out_address, P_FLOAT),
+            ctypes.c_int32(eval_mode)
         ), 'rwkv_eval failed, check stderr'
 
     def rwkv_get_state_buffer_element_count(self, ctx: RWKVContext) -> int:
@@ -149,7 +156,7 @@ class RWKVSharedLibrary:
 
         return self.library.rwkv_get_logits_buffer_element_count(ctx.ptr)
 
-    def rwkv_get_layer_count(self, ctx: RWKVContext) -> ctypes.c_void_p:
+    def rwkv_get_layer_count(self, ctx: RWKVContext) -> int:
         """
         Returns the number of layers in the model.
 
@@ -161,7 +168,7 @@ class RWKVSharedLibrary:
 
         return self.library.rwkv_get_layer_count(ctx.ptr)
 
-    def rwkv_get_embedding_size(self, ctx: RWKVContext) -> ctypes.c_void_p:
+    def rwkv_get_embedding_size(self, ctx: RWKVContext) -> int:
         """
         Returns a the size of an embedding vector of the model (n_embed).
 
@@ -216,6 +223,7 @@ class RWKVSharedLibrary:
         """
 
         return self.library.rwkv_get_system_info_string().decode('utf-8')
+    
 
 def load_rwkv_shared_library() -> RWKVSharedLibrary:
     """

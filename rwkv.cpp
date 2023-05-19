@@ -197,8 +197,11 @@ struct rwkv_context {
     struct ggml_tensor * logits;
     struct ggml_context * ctx;
     struct ggml_cgraph * graph;
+    struct ggml_cgraph * layer1graph;
     bool freed;
 };
+
+static const uint32_t num_partial_layers = 0;
 
 struct rwkv_context * rwkv_init_from_file(const char * file_path, const uint32_t n_threads) {
     FILE * file = fopen(file_path, "rb");
@@ -526,11 +529,22 @@ struct rwkv_context * rwkv_init_from_file(const char * file_path, const uint32_t
     // x = (self.w.head.weight @ x).float()
     struct ggml_tensor * logits = ggml_mul_mat(ctx, model->head, x);
 
+    // Build the graph up to the first layer
+    struct ggml_cgraph * layer1graph = (struct ggml_cgraph *) calloc(1, sizeof(struct ggml_cgraph));
+
+    *layer1graph = ggml_build_forward(state_parts[0]);
+    for (uint32_t i = 0; i < num_partial_layers * 5; i++) {
+        ggml_build_forward_expand(layer1graph, state_parts[i]);
+    }
+
+    layer1graph->n_threads = n_threads;
+
+    // Build the rest of the graph
     struct ggml_cgraph * graph = (struct ggml_cgraph *) calloc(1, sizeof(struct ggml_cgraph));
 
     *graph = ggml_build_forward(logits);
 
-    for (uint32_t i = 0; i < n_layer * 5; i++) {
+    for (uint32_t i = num_partial_layers * 5; i < n_layer * 5; i++) {
        ggml_build_forward_expand(graph, state_parts[i]);
     }
 
@@ -544,6 +558,7 @@ struct rwkv_context * rwkv_init_from_file(const char * file_path, const uint32_t
     rwkv_ctx->logits = logits;
     rwkv_ctx->ctx = ctx;
     rwkv_ctx->graph = graph;
+    rwkv_ctx->layer1graph = layer1graph;
     return rwkv_ctx;
 }
 
@@ -563,9 +578,11 @@ uint32_t rwkv_get_layer_count(const struct rwkv_context * ctx) {
     return ctx->model->n_layer;
 }
 
-bool rwkv_eval(const struct rwkv_context * ctx, const uint32_t token, const float * state_in, float * state_out, float * logits_out) {
+bool rwkv_eval(const struct rwkv_context * ctx, const uint32_t token, const float * state_in, float * state_out, float * logits_out, int32_t eval_mode) {
     RWKV_ASSERT_FALSE(state_out != NULL, "state_out is NULL");
-    RWKV_ASSERT_FALSE(logits_out != NULL, "logits_out is NULL");
+    if (eval_mode != RWKV_EVAL_PARTIAL)
+        RWKV_ASSERT_FALSE(logits_out != NULL, "logits_out is NULL");
+    RWKV_ASSERT_FALSE(eval_mode >= RWKV_EVAL_MIN && eval_mode <= RWKV_EVAL_MAX, "Valid eval_mode");
 
     uint32_t n_layer = ctx->model->n_layer;
     uint32_t n_embed = ctx->model->n_embed;
@@ -574,30 +591,52 @@ bool rwkv_eval(const struct rwkv_context * ctx, const uint32_t token, const floa
     RWKV_ASSERT_FALSE(token < (uint32_t) n_vocab, "Token is out of range 0..%d", n_vocab - 1);
 
     ggml_set_i32_1d(ctx->token_index, 0, token);
+    
+    if (eval_mode == RWKV_EVAL_FULL || eval_mode == RWKV_EVAL_PARTIAL) {
+        if (state_in == NULL) {
+            ggml_set_f32(ctx->state, 0.0F);
 
-    if (state_in == NULL) {
-        ggml_set_f32(ctx->state, 0.0F);
-
-        for (uint32_t i = 0; i < n_layer; i++) {
-            // state[5 * i + 4] = -1e30
-            ggml_set_f32(
-                ggml_view_1d(ctx->ctx, ctx->state, n_embed, (5 * i + 4) * n_embed * sizeof(float)),
-                -1e30F
-            );
+            for (uint32_t i = 0; i < n_layer; i++) {
+                // state[5 * i + 4] = -1e30
+                ggml_set_f32(
+                    ggml_view_1d(ctx->ctx, ctx->state, n_embed, (5 * i + 4) * n_embed * sizeof(float)),
+                    -1e30F
+                );
+            }
+        } else {
+            memcpy(ctx->state->data, state_in, ctx->state->ne[0] * sizeof(float));
         }
-    } else {
-        memcpy(ctx->state->data, state_in, ctx->state->ne[0] * sizeof(float));
     }
 
-    ggml_graph_compute(ctx->ctx, ctx->graph);
+    switch(eval_mode) {
+        case RWKV_EVAL_PARTIAL: {
+            ggml_graph_compute(ctx->ctx, ctx->layer1graph);
 
-    for (uint32_t i = 0; i < n_layer * 5; i++) {
-        struct ggml_tensor * part = ctx->state_parts[i];
+            for (uint32_t i = 0; i < num_partial_layers * 5; i++) {
+                struct ggml_tensor * part = ctx->state_parts[i];
 
-        memcpy(state_out + i * n_embed, part->data, part->ne[0] * sizeof(float));
+                memcpy(state_out + i * n_embed, part->data, part->ne[0] * sizeof(float));
+            }
+            break;
+        }
+        case RWKV_EVAL_FULL: {
+            ggml_graph_compute(ctx->ctx, ctx->layer1graph);
+            // fall through
+        }
+        case RWKV_EVAL_REST: {
+            ggml_graph_compute(ctx->ctx, ctx->graph);
+
+            for (uint32_t i = 0; i < n_layer * 5; i++) {
+                struct ggml_tensor * part = ctx->state_parts[i];
+
+                memcpy(state_out + i * n_embed, part->data, part->ne[0] * sizeof(float));
+            }
+            
+            memcpy(logits_out, ctx->logits->data, ctx->logits->ne[0] * sizeof(float));
+            break;
+        }
     }
 
-    memcpy(logits_out, ctx->logits->data, ctx->logits->ne[0] * sizeof(float));
 
     return true;
 }
@@ -608,6 +647,7 @@ void rwkv_free(struct rwkv_context * ctx) {
     delete[] ctx->state_parts;
     ggml_free(ctx->ctx);
     free(ctx->graph);
+    free(ctx->layer1graph);
     free(ctx);
 }
 

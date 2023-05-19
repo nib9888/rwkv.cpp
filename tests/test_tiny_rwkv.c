@@ -39,7 +39,8 @@ void test_model(const char * model_path, const float * expected_logits, const fl
     const size_t prompt_length = strlen(prompt);
 
     for (size_t i = 0; i < prompt_length; i++) {
-        rwkv_eval(model, prompt[i], i == 0 ? NULL : state, state, logits);
+        rwkv_eval(model, prompt[i], i == 0 ? NULL : state, state, NULL, RWKV_EVAL_LAYER1);
+        rwkv_eval(model, prompt[i], i == 0 ? NULL : state, state, logits, RWKV_EVAL_REST);
     }
 
     float diff_sum = 0.0F;
