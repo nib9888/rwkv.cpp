@@ -25,7 +25,7 @@ tokens_per_generation: int = 300
 
 ## Variables for sampling methods, in order of how they will be applied:
 # Typical Sampling:
-tau: float = 0.2 # Used for typical sampling; 1.0 disables
+tau: float = 1.0 # Used for typical sampling; 1.0 disables
 
 top_p: float = 0.8 # Both 1.0 and 0.0 disable
 
@@ -35,7 +35,7 @@ temperature: float = 1.1 # If not using CS and not using typical sampling, setti
 
 # Contrastive Search:
 # Determines strength of degradation factor in sampling - used for a lerp between model's output and its similarity to earlier model states
-alpha: float = 0.6  # between 0 and 1, where 0 disables CS and 1 uses only the similarities, leading to nonsense
+alpha: float = 0.0  # between 0 and 1, where 0 disables CS and 1 uses only the similarities, leading to nonsense
 # Temperature for the similarities array - similar to alpha, however is non-linear and is more likely to respect when the model is 90% confident in a token - this is probably better to change than alpha
 beta: float = 1.2 # min value: 0, where higher values increase the range of values in the similarities array
 
